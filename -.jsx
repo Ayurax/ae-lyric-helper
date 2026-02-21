@@ -1,0 +1,292 @@
+// ============================================================================
+// ADVANCED DECOMPOSE
+// ============================================================================
+function decomposeSelectedPrecomps_Advanced() {
+
+    var comp = app.project.activeItem;
+    if (!(comp instanceof CompItem)) {
+        alert("Select a composition.");
+        return;
+    }
+
+    var sel = comp.selectedLayers;
+    if (!sel.length) {
+        alert("Select a precomp layer.");
+        return;
+    }
+
+    app.beginUndoGroup("Decompose");
+
+    var targets = [];
+    for (var i = 0; i < sel.length; i++) {
+        if (sel[i].source instanceof CompItem) targets.push(sel[i]);
+    }
+    targets.sort(function (a, b) { return b.index - a.index; });
+
+    for (var t = 0; t < targets.length; t++) {
+
+        var preLayer = targets[t];
+        var nested   = preLayer.source;
+        var idx      = preLayer.index;
+
+        var preStart = preLayer.startTime;
+        var preIn    = preLayer.inPoint;
+        var preOut   = preLayer.outPoint;
+
+        var stretch  = preLayer.stretch / 100;
+        var hasTR    = preLayer.canSetTimeRemap && preLayer.timeRemapEnabled;
+        var nestST   = nested.displayStartTime;
+
+        var created = [];
+
+        function reverseTR(time) {
+            var tr = preLayer.property("ADBE TimeRemapping");
+            var best = preStart, diff = 1e9;
+            var step = comp.frameDuration / 2;
+
+            for (var t = preIn; t <= preOut; t += step) {
+                var v = tr.valueAtTime(t, false);
+                var d = Math.abs(v - time);
+                if (d < diff) { diff = d; best = t; }
+            }
+            return best;
+        }
+
+        for (var j = nested.numLayers; j >= 1; j--) {
+
+            var src = nested.layer(j);
+            if (!src) continue;
+
+            var newL;
+            try { newL = src.copyToComp(comp); } catch (e) {}
+            if (!newL) continue;
+
+            var st = preStart + (src.startTime - nestST) * stretch;
+            var ip = preStart + (src.inPoint   - nestST) * stretch;
+            var op = preStart + (src.outPoint  - nestST) * stretch;
+
+            if (hasTR) {
+                st = reverseTR(src.startTime);
+                ip = reverseTR(src.inPoint);
+                op = reverseTR(src.outPoint);
+            }
+
+            newL.startTime = st;
+            newL.inPoint   = ip;
+            newL.outPoint  = op;
+
+            try { newL.blendingMode     = src.blendingMode; } catch(e){}
+            try { newL.opacity.setValue(src.opacity.value); } catch(e){}
+            try { newL.motionBlur       = src.motionBlur; } catch(e){}
+            try { newL.threeDLayer      = src.threeDLayer; } catch(e){}
+            try { newL.adjustmentLayer  = src.adjustmentLayer; } catch(e){}
+            try { newL.label            = src.label; } catch(e){}
+
+            created.push(newL);
+        }
+
+        for (var c = created.length - 1; c >= 0; c--) {
+            try { created[c].moveTo(idx); } catch(e){}
+        }
+
+        try { preLayer.remove(); } catch(e){}
+    }
+
+    app.endUndoGroup();
+}
+
+
+// ============================================================================
+// SCRIPTUI PANEL
+// ============================================================================
+function AE_Utility_Panel(thisObj) {
+
+    function buildUI(thisObj) {
+
+        var win = (thisObj instanceof Panel)
+            ? thisObj
+            : new Window("palette", " ", undefined, { resizeable: true });
+
+        win.orientation = "column";
+        win.alignChildren = ["left","top"];
+        win.margins = 0;
+        win.spacing = 0;
+
+        var g = win.add("group");
+        g.orientation = "column";
+        g.alignChildren = ["left","top"];
+        g.margins = 0;
+        g.spacing = 6;
+
+        var solidColor = [1,0,0];
+
+        // ---------- helpers ----------
+        function getComp() {
+            var c = app.project.activeItem;
+            if (!(c instanceof CompItem)) {
+                alert("Select a composition.");
+                return null;
+            }
+            return c;
+        }
+
+        function perSelection(fn, allowEmpty) {
+            var c = getComp();
+            if (!c) return;
+
+            var sel = c.selectedLayers;
+            app.beginUndoGroup("RAJ+gpt");
+
+            if (!sel.length && allowEmpty) fn(c, null, 0);
+            else for (var i=0;i<sel.length;i++) fn(c, sel[i], i);
+
+            app.endUndoGroup();
+        }
+
+        function btn(label, tip, fn) {
+            var row = g.add("group");
+            row.orientation = "row";
+            row.alignChildren = ["left","center"];
+            row.margins = 0;
+
+            var b = row.add("button", undefined, label, { style:"toolbutton" });
+            b.characters = label.length;
+            b.minimumSize.height = 16;
+            b.maximumSize.height = 18;
+            b.alignment = ["left","center"];
+            b.helpTip = tip;
+            b.onClick = fn;
+            return b;
+        }
+
+        // ---------- buttons ----------
+        btn("Null","Create Null",function(){
+            perSelection(function(c,l){
+                var n=c.layers.addNull(); n.label=1;
+                if(l){n.startTime=l.startTime;n.inPoint=l.inPoint;n.outPoint=l.outPoint;n.moveBefore(l);}
+            },true);
+        });
+
+        btn("ADJ","Adjustment Layer",function(){
+            perSelection(function(c,l,i){
+                var a=c.layers.addSolid([1,1,1],"Adj "+(i+1),c.width,c.height,c.pixelAspect);
+                a.adjustmentLayer=true;a.label=11;
+                if(l){a.startTime=l.startTime;a.inPoint=l.inPoint;a.outPoint=l.outPoint;a.moveBefore(l);}
+            },true);
+        });
+
+        btn("Solid", "Create Solid (Eyedropper)", function () {
+
+    var c = getComp();
+    if (!c) return;
+
+    var prevLayer = c.selectedLayers.length ? c.selectedLayers[0] : null;
+
+    // Show color picker ($.colorPicker is native and cross-platform)
+    var color = $.colorPicker();
+    if (color === null) return;
+
+    app.beginUndoGroup("Create Solid");
+
+    // Convert hex color (0xRRGGBB) to normalized RGB [0-1]
+    var r = ((color >> 16) & 0xFF) / 255;
+    var g = ((color >> 8) & 0xFF) / 255;
+    var b = (color & 0xFF) / 255;
+
+    // Create solid directly with converted color
+    var s = c.layers.addSolid([r, g, b], "Solid", c.width, c.height, c.pixelAspect);
+    s.label = 8;
+
+    if (prevLayer) {
+        s.startTime = prevLayer.startTime;
+        s.inPoint   = prevLayer.inPoint;
+        s.outPoint  = prevLayer.outPoint;
+        s.moveBefore(prevLayer);
+    } else {
+        var t   = c.workAreaStart;
+        var dur = c.workAreaDuration;
+        if (dur === 0) dur = 1;
+
+        s.startTime = t;
+        s.inPoint   = t;
+        s.outPoint  = t + dur;
+    }
+
+    app.endUndoGroup();
+});
+
+        btn("Text","Create Text",function(){
+            perSelection(function(c,l,i){
+                var t=c.layers.addText("Text "+(i+1)); t.label=9;
+                if(l){t.startTime=l.startTime;t.inPoint=l.inPoint;t.outPoint=l.outPoint;t.moveBefore(l);}
+            },true);
+        });
+
+        btn("1f","1-Frame Adjustment",function(){
+            var c=getComp(); if(!c) return;
+            var prevLayer=c.selectedLayers.length?c.selectedLayers[0]:null;
+            app.beginUndoGroup("1f Adj");
+            var t=c.time;
+            var frameDur=c.frameDuration;
+            var a=c.layers.addSolid([1,1,1],"1f Adj",c.width,c.height,c.pixelAspect);
+            a.adjustmentLayer=true;
+            a.label=13;
+            a.startTime=t;
+            a.inPoint=t;
+            a.outPoint=t+frameDur;
+            if(prevLayer) a.moveBefore(prevLayer);
+            app.endUndoGroup();
+        });
+
+        btn("Cam","Camera + Rig",function(){
+            var c=getComp(); if(!c) return;
+            app.beginUndoGroup("Camera Rig");
+            var cam=c.layers.addCamera("Camera",[c.width/2,c.height/2]);
+            var ctl=c.layers.addNull();
+            ctl.name="Camera Controller";ctl.threeDLayer=true;ctl.motionBlur=true;ctl.label=16;
+            ctl.moveBefore(cam);cam.parent=ctl;
+            if(c.selectedLayers.length){
+                var l=c.selectedLayers[0];
+                ctl.startTime=cam.startTime=l.startTime;
+                ctl.inPoint=cam.inPoint=l.inPoint;
+                ctl.outPoint=cam.outPoint=l.outPoint;
+            }
+            app.endUndoGroup();
+        });
+
+        btn("AK","Align Keys",function(){
+            var c=getComp(); if(!c) return;
+            var fd=1/c.frameRate;
+            app.beginUndoGroup("Align Keys");
+            var sel=c.selectedLayers;
+            for(var i=0;i<sel.length;i++){
+                var props=sel[i].selectedProperties;
+                for(var j=0;j<props.length;j++){
+                    var p=props[j];
+                    if(!p||p.numKeys<2)continue;
+                    var isTR=(p.matchName==="ADBE TimeRemapping");
+                    var last=p.numKeys,keys=[];
+                    for(var k=1;k<=p.numKeys;k++)
+                        if(p.keySelected(k)&&!(isTR&&k===last))keys.push(k);
+                    if(keys.length>1){
+                        var t0=p.keyTime(keys[0]),vals=[];
+                        for(var m=0;m<keys.length;m++)vals.push(p.keyValue(keys[m]));
+                        for(var m=keys.length-1;m>=0;m--)p.removeKey(keys[m]);
+                        for(var m=0;m<vals.length;m++)p.setValueAtTime(t0+m*fd,vals[m]);
+                    }
+                }
+            }
+            app.endUndoGroup();
+        });
+
+        btn("De","Decompose Precomp",decomposeSelectedPrecomps_Advanced);
+
+        win.layout.layout(true);
+        return win;
+    }
+
+    var p = buildUI(thisObj);
+    if (p instanceof Window) { p.center(); p.show(); }
+}
+
+AE_Utility_Panel(this);
