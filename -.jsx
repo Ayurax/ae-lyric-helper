@@ -29,28 +29,9 @@ function decomposeSelectedPrecomps_Advanced() {
         var nested   = preLayer.source;
         var idx      = preLayer.index;
 
-        var preStart = preLayer.startTime;
-        var preIn    = preLayer.inPoint;
-        var preOut   = preLayer.outPoint;
-
-        var stretch  = preLayer.stretch / 100;
-        var hasTR    = preLayer.canSetTimeRemap && preLayer.timeRemapEnabled;
-        var nestST   = nested.displayStartTime;
+        var offset = preLayer.inPoint - nested.displayStartTime;
 
         var created = [];
-
-        function reverseTR(time) {
-            var tr = preLayer.property("ADBE TimeRemapping");
-            var best = preStart, diff = 1e9;
-            var step = comp.frameDuration / 2;
-
-            for (var t = preIn; t <= preOut; t += step) {
-                var v = tr.valueAtTime(t, false);
-                var d = Math.abs(v - time);
-                if (d < diff) { diff = d; best = t; }
-            }
-            return best;
-        }
 
         for (var j = nested.numLayers; j >= 1; j--) {
 
@@ -61,24 +42,12 @@ function decomposeSelectedPrecomps_Advanced() {
             try { newL = src.copyToComp(comp); } catch (e) {}
             if (!newL) continue;
 
-            var st = preStart + (src.startTime - nestST) * stretch;
-            var ip = preStart + (src.inPoint   - nestST) * stretch;
-            var op = preStart + (src.outPoint  - nestST) * stretch;
-
-            if (hasTR) {
-                st = reverseTR(src.startTime);
-                ip = reverseTR(src.inPoint);
-                op = reverseTR(src.outPoint);
-            }
-
-            newL.startTime = st;
-            newL.inPoint   = ip;
-            newL.outPoint  = op;
+            newL.inPoint   += offset;
+            newL.outPoint  += offset;
 
             try { newL.blendingMode     = src.blendingMode; } catch(e){}
-            try { newL.opacity.setValue(src.opacity.value); } catch(e){}
-            try { newL.motionBlur       = src.motionBlur; } catch(e){}
             try { newL.threeDLayer      = src.threeDLayer; } catch(e){}
+            try { newL.motionBlur       = src.motionBlur; } catch(e){}
             try { newL.adjustmentLayer  = src.adjustmentLayer; } catch(e){}
             try { newL.label            = src.label; } catch(e){}
 
@@ -86,7 +55,7 @@ function decomposeSelectedPrecomps_Advanced() {
         }
 
         for (var c = created.length - 1; c >= 0; c--) {
-            try { created[c].moveTo(idx); } catch(e){}
+            try { created[c].moveBefore(preLayer); } catch(e){}
         }
 
         try { preLayer.remove(); } catch(e){}
