@@ -29,7 +29,8 @@ function decomposeSelectedPrecomps_Advanced() {
         var nested   = preLayer.source;
         var idx      = preLayer.index;
 
-        var offset = preLayer.inPoint - nested.displayStartTime;
+        var offset = preLayer.inPoint;
+        var displayStart = nested.displayStartTime;
 
         var created = [];
 
@@ -38,12 +39,17 @@ function decomposeSelectedPrecomps_Advanced() {
             var src = nested.layer(j);
             if (!src) continue;
 
+            var srcStartTime = src.startTime;
+            var srcInPoint = src.inPoint;
+            var srcOutPoint = src.outPoint;
+
             var newL;
             try { newL = src.copyToComp(comp); } catch (e) {}
             if (!newL) continue;
 
-            newL.inPoint   += offset;
-            newL.outPoint  += offset;
+            newL.startTime = offset + (srcStartTime - displayStart);
+            newL.inPoint = offset + (srcInPoint - displayStart);
+            newL.outPoint = offset + (srcOutPoint - displayStart);
 
             try { newL.blendingMode     = src.blendingMode; } catch(e){}
             try { newL.threeDLayer      = src.threeDLayer; } catch(e){}
