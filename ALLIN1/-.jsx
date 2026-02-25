@@ -256,6 +256,55 @@ function AE_Utility_Panel(thisObj) {
 
         btn("De","Decompose Precomp",decomposeSelectedPrecomps_Advanced);
 
+        btn("PreComp","Precompose layers separately",function(){
+            var comp = app.project.activeItem;
+            if (!(comp instanceof CompItem)) {
+                alert("Select a composition.");
+                return;
+            }
+
+            var selectedLayers = comp.selectedLayers;
+            if (!selectedLayers.length) {
+                alert("Select at least one layer.");
+                return;
+            }
+
+            app.beginUndoGroup("Precompose Layers");
+
+            // Collect layer data before processing
+            var layerData = [];
+            for (var i = 0; i < selectedLayers.length; i++) {
+                var layer = selectedLayers[i];
+                layerData.push({
+                    index: layer.index,
+                    startTime: layer.startTime,
+                    inPoint: layer.inPoint,
+                    outPoint: layer.outPoint
+                });
+            }
+
+            // Sort by index descending to avoid shifting
+            layerData.sort(function (a, b) { return b.index - a.index; });
+
+            // Precompose each layer separately
+            for (var i = 0; i < layerData.length; i++) {
+                var data = layerData[i];
+
+                // Precompose single layer—returns CompItem, not Layer
+                comp.layers.precompose([data.index], "PreComp " + (i + 1), true);
+
+                // New precomp layer replaces original at same index
+                var newLayer = comp.layer(data.index);
+                if (newLayer) {
+                    newLayer.startTime = data.startTime;
+                    newLayer.inPoint = data.inPoint;
+                    newLayer.outPoint = data.outPoint;
+                }
+            }
+
+            app.endUndoGroup();
+        });
+
         win.layout.layout(true);
         return win;
     }
