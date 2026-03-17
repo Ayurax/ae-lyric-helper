@@ -344,36 +344,59 @@ function createImageViewerUI(parent) {
     var viewer = parent.add("group");
     viewer.orientation = "column";
     viewer.alignChildren = ["fill", "top"];
-    
-    // Control panel
-    var controls = viewer.add("group");
-    controls.orientation = "horizontal";
-    controls.alignChildren = ["left", "center"];
-    
-    var loadBtn = controls.add("button", undefined, "Load Image");
-    var resetBtn = controls.add("button", undefined, "Reset");
-    var fitBtn = controls.add("button", undefined, "Fit");
-    
-    controls.add("statictext", undefined, "Zoom:");
-    var zoomSlider = controls.add("slider", undefined, 1.0, 0.1, 3.0);
+    viewer.spacing = 8;
+    viewer.margins = [5, 5, 5, 5];
+
+    // Separator
+    viewer.add("statictext", undefined, "--- IMAGE VIEWER ---");
+
+    // Button row - allow expansion
+    var btnRow = viewer.add("group");
+    btnRow.orientation = "horizontal";
+    btnRow.alignChildren = ["left", "center"];
+    btnRow.spacing = 4;
+    btnRow.alignment = ["fill", "top"];
+
+    var loadBtn = btnRow.add("button", undefined, "Load Image");
+    var resetBtn = btnRow.add("button", undefined, "Reset");
+    var fitBtn = btnRow.add("button", undefined, "Fit");
+
+    // Zoom row
+    var zoomRow = viewer.add("group");
+    zoomRow.orientation = "horizontal";
+    zoomRow.alignChildren = ["left", "center"];
+    zoomRow.spacing = 6;
+    zoomRow.alignment = ["fill", "top"];
+
+    zoomRow.add("statictext", undefined, "Zoom:");
+    var zoomSlider = zoomRow.add("slider", undefined, 1.0, 0.1, 3.0);
     zoomSlider.size = [120, 20];
-    
-    var zoomDisplay = controls.add("statictext", undefined, "1.0x");
-    zoomDisplay.size = [40, 20];
-    
-    controls.add("statictext", undefined, "Opacity:");
-    var opacitySlider = controls.add("slider", undefined, 1.0, 0.1, 1.0);
-    opacitySlider.size = [100, 20];
-    
-    var opacityDisplay = controls.add("statictext", undefined, "100%");
-    opacityDisplay.size = [40, 20];
-    
+
+    var zoomDisplay = zoomRow.add("statictext", undefined, "1.0x");
+    zoomDisplay.characters = 6;
+
+    // Opacity row
+    var opacRow = viewer.add("group");
+    opacRow.orientation = "horizontal";
+    opacRow.alignChildren = ["left", "center"];
+    opacRow.spacing = 6;
+    opacRow.alignment = ["fill", "top"];
+
+    opacRow.add("statictext", undefined, "Opacity:");
+    var opacitySlider = opacRow.add("slider", undefined, 1.0, 0.1, 1.0);
+    opacitySlider.size = [120, 20];
+
+    var opacityDisplay = opacRow.add("statictext", undefined, "100%");
+    opacityDisplay.characters = 6;
+
     // Image display container
-    var container = viewer.add("panel");
-    container.size = [500, 400];
-    container.orientation = "stack";
+    var container = viewer.add("group");
+    container.size = [400, 280];
+    container.orientation = "column";
     container.alignment = ["fill", "fill"];
-    
+    container.alignChildren = ["left", "top"];
+    container.margins = 2;
+
     // State management
     var state = {
         img: null,
@@ -391,35 +414,64 @@ function createImageViewerUI(parent) {
     function loadImage() {
         var file = File.openDialog("Select Image", "Image files:*.png,*.jpg,*.jpeg;All files:*.*");
         if (!file) return;
-        
+
         if (state.img) {
             container.remove(state.img);
+            state.img = null;
         }
-        
+
         state.img = container.add("image", undefined, file);
-        
+
+        if (!state.img) {
+            alert("Failed to load image");
+            return;
+        }
+
         // Store original dimensions
         state.origWidth = state.img.size[0];
         state.origHeight = state.img.size[1];
-        
-        // Refresh layout
-        container.layout.layout(true);
-        
-        resetView();
+
+        // Fallback if dimensions are invalid
+        if (state.origWidth <= 0 || state.origHeight <= 0) {
+            state.origWidth = 200;
+            state.origHeight = 200;
+        }
+
+        // Set initial size
+        state.img.size = [state.origWidth, state.origHeight];
+
+        // Reset state
+        state.zoom = 1.0;
+        state.opacity = 1.0;
+        state.offsetX = 0;
+        state.offsetY = 0;
+
+        // Update UI
+        zoomSlider.value = 1.0;
+        zoomDisplay.text = "1.0x";
+        opacitySlider.value = 1.0;
+        opacityDisplay.text = "100%";
+
+        // Layout refresh
+        parent.layout.layout(true);
+
+        // Enable dragging
         setupDragging();
     }
-    
+
     function updateImageDisplay() {
         if (state.img) {
             var newWidth = Math.round(state.origWidth * state.zoom);
             var newHeight = Math.round(state.origHeight * state.zoom);
-            
+
             state.img.size = [newWidth, newHeight];
             state.img.location = [state.offsetX, state.offsetY];
-            
+
             try {
                 state.img.graphics.opacity = state.opacity;
-            } catch (e) {}
+            } catch (e) {
+                // Opacity may not be supported in all SC versions
+            }
         }
     }
     
@@ -439,16 +491,18 @@ function createImageViewerUI(parent) {
     
     function fitToPanel() {
         if (!state.img) return;
-        
+
         var containerWidth = container.size[0];
         var containerHeight = container.size[1];
-        
+
         var scaleX = containerWidth / state.origWidth;
         var scaleY = containerHeight / state.origHeight;
-        var fitZoom = Math.min(scaleX, scaleY) * 0.9;
-        
-        applyZoom(Math.max(0.1, Math.min(3.0, fitZoom)));
-        
+        var fitZoom = Math.min(scaleX, scaleY) * 0.85;
+
+        state.zoom = Math.max(0.1, Math.min(3.0, fitZoom));
+        zoomSlider.value = state.zoom;
+        zoomDisplay.text = state.zoom.toFixed(2) + "x";
+
         var newImgWidth = state.origWidth * state.zoom;
         var newImgHeight = state.origHeight * state.zoom;
         state.offsetX = (containerWidth - newImgWidth) / 2;
@@ -470,37 +524,37 @@ function createImageViewerUI(parent) {
     
     function setupDragging() {
         if (!state.img) return;
-        
+
         state.img.addEventListener("mousedown", function(e) {
             state.isDragging = true;
             state.lastMouseX = e.screenX;
             state.lastMouseY = e.screenY;
         });
-        
+
         state.img.addEventListener("mousemove", function(e) {
             if (state.isDragging) {
                 var dx = e.screenX - state.lastMouseX;
                 var dy = e.screenY - state.lastMouseY;
-                
+
                 state.offsetX += dx;
                 state.offsetY += dy;
-                
+
                 // Clamp to boundaries
                 var containerWidth = container.size[0];
                 var containerHeight = container.size[1];
                 var imgWidth = state.origWidth * state.zoom;
                 var imgHeight = state.origHeight * state.zoom;
-                
+
                 state.offsetX = Math.max(-imgWidth + 20, Math.min(containerWidth - 20, state.offsetX));
                 state.offsetY = Math.max(-imgHeight + 20, Math.min(containerHeight - 20, state.offsetY));
-                
+
                 state.lastMouseX = e.screenX;
                 state.lastMouseY = e.screenY;
-                
+
                 state.img.location = [state.offsetX, state.offsetY];
             }
         });
-        
+
         state.img.addEventListener("mouseup", function(e) {
             state.isDragging = false;
         });
