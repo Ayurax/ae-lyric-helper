@@ -333,3 +333,192 @@ AE 2021 Compatible
     }
 
 })(this);
+
+function createImageViewerUI(parent) {
+    var viewer = parent.add("group");
+    viewer.orientation = "column";
+    viewer.alignChildren = ["fill", "top"];
+    
+    // Control panel
+    var controls = viewer.add("group");
+    controls.orientation = "horizontal";
+    controls.alignChildren = ["left", "center"];
+    
+    var loadBtn = controls.add("button", undefined, "Load Image");
+    var resetBtn = controls.add("button", undefined, "Reset");
+    var fitBtn = controls.add("button", undefined, "Fit");
+    
+    controls.add("statictext", undefined, "Zoom:");
+    var zoomSlider = controls.add("slider", undefined, 1.0, 0.1, 3.0);
+    zoomSlider.size = [120, 20];
+    
+    var zoomDisplay = controls.add("statictext", undefined, "1.0x");
+    zoomDisplay.size = [40, 20];
+    
+    controls.add("statictext", undefined, "Opacity:");
+    var opacitySlider = controls.add("slider", undefined, 1.0, 0.1, 1.0);
+    opacitySlider.size = [100, 20];
+    
+    var opacityDisplay = controls.add("statictext", undefined, "100%");
+    opacityDisplay.size = [40, 20];
+    
+    // Image display container
+    var container = viewer.add("panel");
+    container.size = [500, 400];
+    container.orientation = "stack";
+    container.alignment = ["fill", "fill"];
+    
+    // State management
+    var state = {
+        img: null,
+        origWidth: 0,
+        origHeight: 0,
+        zoom: 1.0,
+        opacity: 1.0,
+        offsetX: 0,
+        offsetY: 0,
+        isDragging: false,
+        lastMouseX: 0,
+        lastMouseY: 0
+    };
+    
+    function loadImage() {
+        var file = File.openDialog("Select Image", "Image files:*.png,*.jpg,*.jpeg;All files:*.*");
+        if (!file) return;
+        
+        if (state.img) {
+            container.remove(state.img);
+        }
+        
+        state.img = container.add("image", undefined, file);
+        
+        // Store original dimensions
+        state.origWidth = state.img.size[0];
+        state.origHeight = state.img.size[1];
+        
+        // Refresh layout
+        container.layout.layout(true);
+        
+        resetView();
+        setupDragging();
+    }
+    
+    function updateImageDisplay() {
+        if (state.img) {
+            var newWidth = Math.round(state.origWidth * state.zoom);
+            var newHeight = Math.round(state.origHeight * state.zoom);
+            
+            state.img.size = [newWidth, newHeight];
+            state.img.location = [state.offsetX, state.offsetY];
+            
+            try {
+                state.img.graphics.opacity = state.opacity;
+            } catch (e) {}
+        }
+    }
+    
+    function applyZoom(zoomLevel) {
+        state.zoom = Math.max(0.1, Math.min(3.0, zoomLevel));
+        zoomSlider.value = state.zoom;
+        zoomDisplay.text = state.zoom.toFixed(2) + "x";
+        updateImageDisplay();
+    }
+    
+    function applyOpacity(opacityLevel) {
+        state.opacity = Math.max(0.1, Math.min(1.0, opacityLevel));
+        opacitySlider.value = state.opacity;
+        opacityDisplay.text = Math.round(state.opacity * 100) + "%";
+        updateImageDisplay();
+    }
+    
+    function fitToPanel() {
+        if (!state.img) return;
+        
+        var containerWidth = container.size[0];
+        var containerHeight = container.size[1];
+        
+        var scaleX = containerWidth / state.origWidth;
+        var scaleY = containerHeight / state.origHeight;
+        var fitZoom = Math.min(scaleX, scaleY) * 0.9;
+        
+        applyZoom(Math.max(0.1, Math.min(3.0, fitZoom)));
+        
+        var newImgWidth = state.origWidth * state.zoom;
+        var newImgHeight = state.origHeight * state.zoom;
+        state.offsetX = (containerWidth - newImgWidth) / 2;
+        state.offsetY = (containerHeight - newImgHeight) / 2;
+        updateImageDisplay();
+    }
+    
+    function resetView() {
+        state.zoom = 1.0;
+        state.opacity = 1.0;
+        state.offsetX = 0;
+        state.offsetY = 0;
+        zoomSlider.value = 1.0;
+        zoomDisplay.text = "1.0x";
+        opacitySlider.value = 1.0;
+        opacityDisplay.text = "100%";
+        updateImageDisplay();
+    }
+    
+    function setupDragging() {
+        if (!state.img) return;
+        
+        state.img.addEventListener("mousedown", function(e) {
+            state.isDragging = true;
+            state.lastMouseX = e.screenX;
+            state.lastMouseY = e.screenY;
+        });
+        
+        state.img.addEventListener("mousemove", function(e) {
+            if (state.isDragging) {
+                var dx = e.screenX - state.lastMouseX;
+                var dy = e.screenY - state.lastMouseY;
+                
+                state.offsetX += dx;
+                state.offsetY += dy;
+                
+                // Clamp to boundaries
+                var containerWidth = container.size[0];
+                var containerHeight = container.size[1];
+                var imgWidth = state.origWidth * state.zoom;
+                var imgHeight = state.origHeight * state.zoom;
+                
+                state.offsetX = Math.max(-imgWidth + 20, Math.min(containerWidth - 20, state.offsetX));
+                state.offsetY = Math.max(-imgHeight + 20, Math.min(containerHeight - 20, state.offsetY));
+                
+                state.lastMouseX = e.screenX;
+                state.lastMouseY = e.screenY;
+                
+                state.img.location = [state.offsetX, state.offsetY];
+            }
+        });
+        
+        state.img.addEventListener("mouseup", function(e) {
+            state.isDragging = false;
+        });
+    }
+    
+    loadBtn.onClick = function() {
+        loadImage();
+    };
+    
+    resetBtn.onClick = function() {
+        resetView();
+    };
+    
+    fitBtn.onClick = function() {
+        fitToPanel();
+    };
+    
+    zoomSlider.onChanging = function() {
+        applyZoom(this.value);
+    };
+    
+    opacitySlider.onChanging = function() {
+        applyOpacity(this.value);
+    };
+    
+    return viewer;
+}
