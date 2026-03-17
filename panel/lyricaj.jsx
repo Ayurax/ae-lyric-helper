@@ -56,6 +56,12 @@ AE 2021 Compatible
         var resetBtn = btnGroup.add("button", undefined, "Reset");
 
         // ----------------------------
+        // Image Viewer
+        // ----------------------------
+
+        var imageViewer = createImageViewerUI(win);
+
+        // ----------------------------
         // State
         // ----------------------------
 
