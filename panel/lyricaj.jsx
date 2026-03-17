@@ -346,17 +346,25 @@ function createImageViewerUI(parent) {
     
     var loadBtn = controls.add("button", undefined, "Load Image");
     var resetBtn = controls.add("button", undefined, "Reset");
+    var fitBtn = controls.add("button", undefined, "Fit");
     
     controls.add("statictext", undefined, "Zoom:");
     var zoomSlider = controls.add("slider", undefined, 1.0, 0.1, 3.0);
-    zoomSlider.size = [150, 20];
+    zoomSlider.size = [120, 20];
     
     var zoomDisplay = controls.add("statictext", undefined, "1.0x");
     zoomDisplay.size = [40, 20];
     
+    controls.add("statictext", undefined, "Opacity:");
+    var opacitySlider = controls.add("slider", undefined, 1.0, 0.1, 1.0);
+    opacitySlider.size = [100, 20];
+    
+    var opacityDisplay = controls.add("statictext", undefined, "100%");
+    opacityDisplay.size = [40, 20];
+    
     // Image display container
     var container = viewer.add("panel");
-    container.size = [400, 300];
+    container.size = [500, 400];
     container.orientation = "stack";
     container.alignment = ["fill", "fill"];
     
@@ -366,13 +374,12 @@ function createImageViewerUI(parent) {
         origWidth: 0,
         origHeight: 0,
         zoom: 1.0,
+        opacity: 1.0,
         offsetX: 0,
         offsetY: 0,
         isDragging: false,
-        dragStartX: 0,
-        dragStartY: 0,
-        dragStartOffsetX: 0,
-        dragStartOffsetY: 0
+        lastMouseX: 0,
+        lastMouseY: 0
     };
     
     function loadImage() {
@@ -384,63 +391,113 @@ function createImageViewerUI(parent) {
         }
         
         state.img = container.add("image", undefined, file);
+        
+        // Store original dimensions
         state.origWidth = state.img.size[0];
         state.origHeight = state.img.size[1];
         
+        // Refresh layout
+        container.layout.layout(true);
+        
         resetView();
-        setupDragHandling();
+        setupDragging();
     }
     
     function updateImageDisplay() {
         if (state.img) {
-            var newWidth = state.origWidth * state.zoom;
-            var newHeight = state.origHeight * state.zoom;
+            var newWidth = Math.round(state.origWidth * state.zoom);
+            var newHeight = Math.round(state.origHeight * state.zoom);
+            
             state.img.size = [newWidth, newHeight];
             state.img.location = [state.offsetX, state.offsetY];
+            
+            try {
+                state.img.graphics.opacity = state.opacity;
+            } catch (e) {}
         }
     }
     
     function applyZoom(zoomLevel) {
-        state.zoom = zoomLevel;
-        zoomDisplay.text = zoomLevel.toFixed(2) + "x";
+        state.zoom = Math.max(0.1, Math.min(3.0, zoomLevel));
+        zoomSlider.value = state.zoom;
+        zoomDisplay.text = state.zoom.toFixed(2) + "x";
+        updateImageDisplay();
+    }
+    
+    function applyOpacity(opacityLevel) {
+        state.opacity = Math.max(0.1, Math.min(1.0, opacityLevel));
+        opacitySlider.value = state.opacity;
+        opacityDisplay.text = Math.round(state.opacity * 100) + "%";
+        updateImageDisplay();
+    }
+    
+    function fitToPanel() {
+        if (!state.img) return;
+        
+        var containerWidth = container.size[0];
+        var containerHeight = container.size[1];
+        
+        var scaleX = containerWidth / state.origWidth;
+        var scaleY = containerHeight / state.origHeight;
+        var fitZoom = Math.min(scaleX, scaleY) * 0.9;
+        
+        applyZoom(Math.max(0.1, Math.min(3.0, fitZoom)));
+        
+        var newImgWidth = state.origWidth * state.zoom;
+        var newImgHeight = state.origHeight * state.zoom;
+        state.offsetX = (containerWidth - newImgWidth) / 2;
+        state.offsetY = (containerHeight - newImgHeight) / 2;
         updateImageDisplay();
     }
     
     function resetView() {
         state.zoom = 1.0;
+        state.opacity = 1.0;
         state.offsetX = 0;
         state.offsetY = 0;
         zoomSlider.value = 1.0;
         zoomDisplay.text = "1.0x";
+        opacitySlider.value = 1.0;
+        opacityDisplay.text = "100%";
         updateImageDisplay();
     }
     
-    function setupDragHandling() {
+    function setupDragging() {
         if (!state.img) return;
         
-        state.img.onMouseDown = function() {
+        state.img.addEventListener("mousedown", function(e) {
             state.isDragging = true;
-            state.dragStartX = state.img.location[0];
-            state.dragStartY = state.img.location[1];
-            state.dragStartOffsetX = state.offsetX;
-            state.dragStartOffsetY = state.offsetY;
-        };
+            state.lastMouseX = e.screenX;
+            state.lastMouseY = e.screenY;
+        });
         
-        state.img.onMouseMove = function() {
+        state.img.addEventListener("mousemove", function(e) {
             if (state.isDragging) {
-                var deltaX = state.img.location[0] - state.dragStartX;
-                var deltaY = state.img.location[1] - state.dragStartY;
+                var dx = e.screenX - state.lastMouseX;
+                var dy = e.screenY - state.lastMouseY;
                 
-                state.offsetX = state.dragStartOffsetX + deltaX;
-                state.offsetY = state.dragStartOffsetY + deltaY;
+                state.offsetX += dx;
+                state.offsetY += dy;
+                
+                // Clamp to boundaries
+                var containerWidth = container.size[0];
+                var containerHeight = container.size[1];
+                var imgWidth = state.origWidth * state.zoom;
+                var imgHeight = state.origHeight * state.zoom;
+                
+                state.offsetX = Math.max(-imgWidth + 20, Math.min(containerWidth - 20, state.offsetX));
+                state.offsetY = Math.max(-imgHeight + 20, Math.min(containerHeight - 20, state.offsetY));
+                
+                state.lastMouseX = e.screenX;
+                state.lastMouseY = e.screenY;
                 
                 state.img.location = [state.offsetX, state.offsetY];
             }
-        };
+        });
         
-        state.img.onMouseUp = function() {
+        state.img.addEventListener("mouseup", function(e) {
             state.isDragging = false;
-        };
+        });
     }
     
     loadBtn.onClick = function() {
@@ -451,8 +508,16 @@ function createImageViewerUI(parent) {
         resetView();
     };
     
+    fitBtn.onClick = function() {
+        fitToPanel();
+    };
+    
     zoomSlider.onChanging = function() {
         applyZoom(this.value);
+    };
+    
+    opacitySlider.onChanging = function() {
+        applyOpacity(this.value);
     };
     
     return viewer;
