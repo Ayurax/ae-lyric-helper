@@ -333,3 +333,127 @@ AE 2021 Compatible
     }
 
 })(this);
+
+function createImageViewerUI(parent) {
+    var viewer = parent.add("group");
+    viewer.orientation = "column";
+    viewer.alignChildren = ["fill", "top"];
+    
+    // Control panel
+    var controls = viewer.add("group");
+    controls.orientation = "horizontal";
+    controls.alignChildren = ["left", "center"];
+    
+    var loadBtn = controls.add("button", undefined, "Load Image");
+    var resetBtn = controls.add("button", undefined, "Reset");
+    
+    controls.add("statictext", undefined, "Zoom:");
+    var zoomSlider = controls.add("slider", undefined, 1.0, 0.1, 3.0);
+    zoomSlider.size = [150, 20];
+    
+    var zoomDisplay = controls.add("statictext", undefined, "1.0x");
+    zoomDisplay.size = [40, 20];
+    
+    // Image display container
+    var container = viewer.add("panel");
+    container.size = [400, 300];
+    container.orientation = "stack";
+    container.alignment = ["fill", "fill"];
+    
+    // State management
+    var state = {
+        img: null,
+        origWidth: 0,
+        origHeight: 0,
+        zoom: 1.0,
+        offsetX: 0,
+        offsetY: 0,
+        isDragging: false,
+        dragStartX: 0,
+        dragStartY: 0,
+        dragStartOffsetX: 0,
+        dragStartOffsetY: 0
+    };
+    
+    function loadImage() {
+        var file = File.openDialog("Select Image", "Image files:*.png,*.jpg,*.jpeg;All files:*.*");
+        if (!file) return;
+        
+        if (state.img) {
+            container.remove(state.img);
+        }
+        
+        state.img = container.add("image", undefined, file);
+        state.origWidth = state.img.size[0];
+        state.origHeight = state.img.size[1];
+        
+        resetView();
+        setupDragHandling();
+    }
+    
+    function updateImageDisplay() {
+        if (state.img) {
+            var newWidth = state.origWidth * state.zoom;
+            var newHeight = state.origHeight * state.zoom;
+            state.img.size = [newWidth, newHeight];
+            state.img.location = [state.offsetX, state.offsetY];
+        }
+    }
+    
+    function applyZoom(zoomLevel) {
+        state.zoom = zoomLevel;
+        zoomDisplay.text = zoomLevel.toFixed(2) + "x";
+        updateImageDisplay();
+    }
+    
+    function resetView() {
+        state.zoom = 1.0;
+        state.offsetX = 0;
+        state.offsetY = 0;
+        zoomSlider.value = 1.0;
+        zoomDisplay.text = "1.0x";
+        updateImageDisplay();
+    }
+    
+    function setupDragHandling() {
+        if (!state.img) return;
+        
+        state.img.onMouseDown = function() {
+            state.isDragging = true;
+            state.dragStartX = state.img.location[0];
+            state.dragStartY = state.img.location[1];
+            state.dragStartOffsetX = state.offsetX;
+            state.dragStartOffsetY = state.offsetY;
+        };
+        
+        state.img.onMouseMove = function() {
+            if (state.isDragging) {
+                var deltaX = state.img.location[0] - state.dragStartX;
+                var deltaY = state.img.location[1] - state.dragStartY;
+                
+                state.offsetX = state.dragStartOffsetX + deltaX;
+                state.offsetY = state.dragStartOffsetY + deltaY;
+                
+                state.img.location = [state.offsetX, state.offsetY];
+            }
+        };
+        
+        state.img.onMouseUp = function() {
+            state.isDragging = false;
+        };
+    }
+    
+    loadBtn.onClick = function() {
+        loadImage();
+    };
+    
+    resetBtn.onClick = function() {
+        resetView();
+    };
+    
+    zoomSlider.onChanging = function() {
+        applyZoom(this.value);
+    };
+    
+    return viewer;
+}
